@@ -19,7 +19,24 @@ Response:
 }
 ```
 
-Forecast and location search use cases are planned, but their implementation is not available yet.
+The forecast use case and provider-independent internal models are implemented,
+with an async provider protocol and tests using a fake provider. The Open-Meteo
+adapter now validates and normalizes provider responses, with mock HTTP tests for
+success and failure paths. The application lifespan now owns a configured shared
+HTTP client and wires the adapter into the forecast use case. The forecast route
+is available at `GET /api/v1/weather/forecast` with required `latitude` and
+`longitude` and optional `forecast_days` (1–7, default 1). Unknown and repeated
+parameters are rejected. Location search remains planned.
+
+See the [phase 3 implementation plan](docs/phase-3-implementation-plan.md) for
+progress and the next implementation steps.
+
+Phase 2 defines the [forecast v1 contract](docs/api/forecast-v1.md), including
+validated request/response schemas and the error envelope. The forecast route
+and success schema are exposed in OpenAPI. Custom error envelopes, provider error
+HTTP mappings and request IDs remain pending; validation currently uses FastAPI's
+default 422 response. The contract uses 1–7 UTC calendar days, hourly records and
+fixed units. Live provider verification remains pending.
 
 ## Requirements
 
@@ -39,8 +56,50 @@ Install the project and development dependencies:
 
 ```powershell
 python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
+python -m pip install -c constraints.txt -e ".[dev]"
 ```
+
+The existing virtual environment and pip are the development workflow. Direct
+dependencies live in `pyproject.toml`; `constraints.txt` pins the versions used by
+local development, CI, and Docker. Constraints only apply to packages needed by
+the requested installation, so development tools are not installed in the image.
+
+Copy the configuration template (optional; defaults work without it):
+
+```powershell
+Copy-Item .env.example .env
+```
+
+`WEATHERHUB_APP_NAME` sets the API title and `WEATHERHUB_DEBUG` enables debug mode
+(disabled by default). Environment variables override `.env` values. Run commands
+from the repository root so that `.env` is found.
+
+Provider configuration uses the following environment variables (also passed
+through Compose):
+
+| Variable | Default |
+| --- | --- |
+| `WEATHERHUB_WEATHER_PROVIDER_BASE_URL` | `https://api.open-meteo.com` |
+| `WEATHERHUB_WEATHER_PROVIDER_CONNECT_TIMEOUT` | `5` seconds |
+| `WEATHERHUB_WEATHER_PROVIDER_READ_TIMEOUT` | `10` seconds |
+| `WEATHERHUB_WEATHER_PROVIDER_WRITE_TIMEOUT` | `5` seconds |
+| `WEATHERHUB_WEATHER_PROVIDER_POOL_TIMEOUT` | `5` seconds |
+
+The base URL must be an HTTP(S) URL. Timeouts must be positive finite numbers.
+They limit connection establishment, waiting for incoming data, writing data and
+waiting for a pooled connection respectively; they are not a total request
+deadline. One client is created per running application lifespan and closed on
+shutdown. Startup and `/health` do not contact Open-Meteo.
+
+Routes can resolve `get_forecast_use_case` with FastAPI `Depends`; tests can
+replace it through `application.dependency_overrides`. Use `TestClient` as a
+context manager to run startup/shutdown. Async tests using an ASGI transport must
+also run the application lifespan. See [ADR 003](docs/adr/003-provider-lifecycle.md).
+
+When updating dependencies, update `pyproject.toml` and the corresponding pins in
+`constraints.txt` together, then validate on Windows and Linux. This is a version
+snapshot, not a hash-verified lockfile; build tools and the base image have their
+own update lifecycle.
 
 ## Running Locally
 
@@ -81,6 +140,25 @@ task typecheck
 task check
 ```
 
+CI runs these checks on Python 3.12, then builds and starts the Docker service and
+checks `/health`. Tests cover the health endpoint, configuration precedence and
+invalid configuration. They do not call external services.
+
+## Docker
+
+With Docker running:
+
+```powershell
+docker compose up --build --wait
+curl.exe http://127.0.0.1:8000/health
+docker compose down
+```
+
+The image runs as a non-root user and includes a health check. Compose exposes
+port 8000 only on localhost and passes the settings from the environment or
+`.env`. Rebuild after code changes; use `task dev` for local automatic reload.
+PostgreSQL and Redis will be added when their implementation phases begin.
+
 ## Project Structure
 
 ```text
@@ -92,10 +170,11 @@ app/
     schemas/              # API response schemas
   application/
     use_cases/            # Application use cases
-  domain/                 # Domain layer
+  config/                 # Validated environment settings
 
 tests/
   api/                    # API tests and pytest fixtures
+  unit/                   # Configuration tests
 
 pyproject.toml            # Project metadata and tool configuration
 .context/                 # Development action plan
