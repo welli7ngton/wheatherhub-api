@@ -33,10 +33,13 @@ progress and the next implementation steps.
 
 Phase 2 defines the [forecast v1 contract](docs/api/forecast-v1.md), including
 validated request/response schemas and the error envelope. The forecast route
-and success schema are exposed in OpenAPI. Custom error envelopes, provider error
-HTTP mappings and request IDs remain pending; validation currently uses FastAPI's
-default 422 response. The contract uses 1–7 UTC calendar days, hourly records and
-fixed units. Live provider verification remains pending.
+and error schemas are exposed in OpenAPI. Forecast errors use the documented
+422/502/503/504 mappings and a safe 500 fallback. Each request receives a new
+server-generated UUID in `X-Request-ID`, matching the UUID in error bodies;
+client-supplied IDs are not reused. Unexpected exceptions are logged server-side
+with this ID, including when debug mode is enabled. The contract uses 1-7 UTC
+calendar days, hourly records and fixed units. Live provider verification remains
+pending.
 
 ## Requirements
 

@@ -1,9 +1,10 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from httpx import AsyncClient, Timeout
 
+from app.api.errors import RequestContextMiddleware, register_error_handlers
 from app.api.routes.weather import router as weather_router
 from app.api.schemas.health import HealthResponse
 from app.application.use_cases.get_forecast import GetForecast
@@ -15,7 +16,7 @@ def create_application(settings: Settings | None = None) -> FastAPI:
     settings = settings if settings is not None else Settings()
 
     @asynccontextmanager
-    async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         async with AsyncClient(
             base_url=str(settings.weather_provider_base_url),
             timeout=Timeout(
@@ -53,6 +54,8 @@ def create_application(settings: Settings | None = None) -> FastAPI:
     def health_check() -> HealthResponse:
         return HealthResponse(status="ok")
 
+    application.add_middleware(RequestContextMiddleware)
+    register_error_handlers(application)
     application.include_router(weather_router)
     return application
 

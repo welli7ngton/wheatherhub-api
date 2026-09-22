@@ -1,9 +1,9 @@
 # Phase 3: Working forecast integration
 
-Status: steps 1-3 implemented; step 4 partially implemented as of 2026-09-22.
-The forecast route is registered with query validation, duplicate rejection,
-explicit response mapping and focused API tests. Custom error envelopes, provider
-error HTTP mappings, request IDs and error documentation in OpenAPI remain pending.
+Status: steps 1-4 implemented. The forecast route includes query validation,
+duplicate rejection with coordinate-error precedence, explicit response mapping,
+422/502/503/504 error translation, a safe logged 500 fallback, and request IDs.
+Success and error responses are documented in OpenAPI and covered by API tests.
 Step 5 completion, including container and live provider verification, is pending.
 
 Step 1 adds immutable internal dataclasses, the async `WeatherProvider` protocol,
@@ -25,7 +25,7 @@ lifespan ownership of the shared client, and an overridable use-case dependency.
 Tests cover configuration, resource cleanup, application isolation and provider-
 independent health checks. Environment examples and Compose expose the settings.
 ADR 003 records the ownership and timeout decisions. Step 4 now exposes the
-forecast route; its error handling and request IDs remain pending.
+forecast route with error handling and request IDs.
 
 ## Baseline progress before step 1
 

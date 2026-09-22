@@ -1,11 +1,19 @@
+import json
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.api.application import create_application
 from app.api.dependencies import get_forecast_use_case
+from app.api.schemas.errors import ErrorResponse
+from app.application.ports.weather_provider import (
+    WeatherProviderInvalidResponse,
+    WeatherProviderTimeout,
+    WeatherProviderUnavailable,
+)
 from app.application.use_cases.get_forecast import GetForecast
 from app.config.settings import Settings
 from app.domain.models.weather import Coordinates, Forecast, HourlyForecast
@@ -16,11 +24,14 @@ URL = "/api/v1/weather/forecast"
 class FakeProvider:
     def __init__(self) -> None:
         self.calls: list[tuple[Coordinates, int]] = []
+        self.error: Exception | None = None
 
     async def get_forecast(
         self, coordinates: Coordinates, *, forecast_days: int
     ) -> Forecast:
         self.calls.append((coordinates, forecast_days))
+        if self.error is not None:
+            raise self.error
         start = datetime(2026, 9, 22, tzinfo=UTC)
         return Forecast(
             location=coordinates,
@@ -62,6 +73,7 @@ def test_forecast_success(
         params["forecast_days"] = str(days)
     response = forecast_client.get(URL, params=params)
     assert response.status_code == 200
+    assert UUID(response.headers["X-Request-ID"]).version == 4
     count = days if days is not None else 1
     assert provider.calls == [(Coordinates(-3.7172, -38.5433), count)]
     body = response.json()
@@ -118,6 +130,11 @@ def test_invalid_query_never_calls_provider(
 ) -> None:
     response = forecast_client.get(f"{URL}?{query}")
     assert response.status_code == 422
+    assert_error(
+        response.text,
+        response.headers["X-Request-ID"],
+        response.json()["error"]["code"],
+    )
     assert provider.calls == []
 
 
@@ -148,3 +165,107 @@ def test_forecast_openapi(forecast_client: TestClient) -> None:
     assert operation["responses"]["200"]["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/ForecastResponse"
     }
+    for status in (200, 422, 500, 502, 503, 504):
+        documented = operation["responses"][str(status)]
+        assert documented["headers"]["X-Request-ID"]["schema"]["format"] == "uuid"
+        if status != 200:
+            assert documented["content"]["application/json"]["schema"] == {
+                "$ref": "#/components/schemas/ErrorResponse"
+            }
+
+
+def assert_error(text: str, request_id: str, code: str) -> None:
+    body = json.loads(text)
+    assert ErrorResponse.model_validate(body).model_dump(mode="json") == body
+    assert set(body) == {"error"}
+    assert set(body["error"]) == {"code", "message", "request_id"}
+    assert body["error"]["code"] == code
+    assert body["error"]["message"]
+    assert body["error"]["request_id"] == request_id
+    assert UUID(request_id).version == 4
+
+
+@pytest.mark.parametrize(
+    "query,code",
+    [
+        ("", "INVALID_COORDINATES"),
+        ("latitude=bad&longitude=0&forecast_days=8", "INVALID_COORDINATES"),
+        ("latitude=0&latitude=0&longitude=0&forecast_days=8", "INVALID_COORDINATES"),
+        ("latitude=0&longitude=0&longitude=1&extra=x", "INVALID_COORDINATES"),
+        ("latitude=0&longitude=nan&extra=x", "INVALID_COORDINATES"),
+        ("latitude=0&longitude=0&forecast_days=8", "INVALID_QUERY"),
+        ("latitude=0&longitude=0&extra=x", "INVALID_QUERY"),
+        ("latitude=0&longitude=0&extra=x&extra=x", "INVALID_QUERY"),
+        ("latitude=0&longitude=0&forecast_days=1&forecast_days=1", "INVALID_QUERY"),
+    ],
+)
+def test_validation_error_precedence(
+    forecast_client: TestClient, provider: FakeProvider, query: str, code: str
+) -> None:
+    response = forecast_client.get(f"{URL}?{query}")
+    assert response.status_code == 422
+    assert_error(response.text, response.headers["X-Request-ID"], code)
+    assert provider.calls == []
+
+
+@pytest.mark.parametrize(
+    "error,status,code",
+    [
+        (WeatherProviderTimeout("private upstream"), 504, "WEATHER_PROVIDER_TIMEOUT"),
+        (
+            WeatherProviderUnavailable("private upstream"),
+            503,
+            "WEATHER_PROVIDER_UNAVAILABLE",
+        ),
+        (
+            WeatherProviderInvalidResponse("private upstream"),
+            502,
+            "WEATHER_PROVIDER_INVALID_RESPONSE",
+        ),
+    ],
+)
+def test_provider_errors(
+    forecast_client: TestClient,
+    provider: FakeProvider,
+    error: Exception,
+    status: int,
+    code: str,
+) -> None:
+    provider.error = error
+    response = forecast_client.get(f"{URL}?latitude=0&longitude=0")
+    assert response.status_code == status
+    assert_error(response.text, response.headers["X-Request-ID"], code)
+    assert "private upstream" not in response.text
+    assert len(provider.calls) == 1
+
+
+@pytest.mark.parametrize("debug", [False, True])
+def test_unexpected_error_is_safe_and_logged(
+    provider: FakeProvider, caplog: pytest.LogCaptureFixture, debug: bool
+) -> None:
+    provider.error = RuntimeError("private internal details")
+    application = create_application(Settings(debug=debug))
+    application.dependency_overrides[get_forecast_use_case] = lambda: GetForecast(
+        provider
+    )
+    with TestClient(application) as client:
+        response = client.get(f"{URL}?latitude=0&longitude=0")
+    assert response.status_code == 500
+    assert_error(response.text, response.headers["X-Request-ID"], "INTERNAL_ERROR")
+    assert "private internal details" not in response.text
+    assert "Traceback" not in response.text
+    assert response.headers["X-Request-ID"] in caplog.text
+    assert "private internal details" in caplog.text
+    assert any(record.exc_info for record in caplog.records)
+
+
+def test_request_ids_are_generated_per_request(forecast_client: TestClient) -> None:
+    supplied = "72174a7b-a22b-4269-8674-8ce1a1fdf835"
+    responses = [
+        forecast_client.get(path, headers={"X-Request-ID": supplied})
+        for path in (f"{URL}?latitude=0&longitude=0", URL, "/health")
+    ]
+    identifiers = {response.headers["X-Request-ID"] for response in responses}
+    assert len(identifiers) == 3
+    assert supplied not in identifiers
+    assert all(UUID(value).version == 4 for value in identifiers)

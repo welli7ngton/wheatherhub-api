@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.exceptions import RequestValidationError
 
 from app.api.dependencies import get_forecast_use_case
+from app.api.schemas.errors import ErrorResponse
 from app.api.schemas.weather import (
     ForecastLocation,
     ForecastQuery,
@@ -38,6 +39,26 @@ def validate_forecast_query(
 @router.get(
     "/forecast",
     response_model=ForecastResponse,
+    responses={
+        status: {
+            **({"model": ErrorResponse} if status != 200 else {}),
+            "description": description,
+            "headers": {
+                "X-Request-ID": {
+                    "description": "Server-generated request correlation UUID",
+                    "schema": {"type": "string", "format": "uuid"},
+                }
+            },
+        }
+        for status, description in {
+            200: "Normalized hourly forecast",
+            422: "INVALID_COORDINATES or INVALID_QUERY; coordinate errors take precedence",
+            502: "WEATHER_PROVIDER_INVALID_RESPONSE",
+            503: "WEATHER_PROVIDER_UNAVAILABLE",
+            504: "WEATHER_PROVIDER_TIMEOUT",
+            500: "INTERNAL_ERROR",
+        }.items()
+    },
     summary="Get an hourly weather forecast",
     description=(
         "Returns 1–7 UTC calendar days with fixed metric units. "
