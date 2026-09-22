@@ -1,4 +1,4 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -16,7 +16,7 @@ def create_application(settings: Settings | None = None) -> FastAPI:
     settings = settings if settings is not None else Settings()
 
     @asynccontextmanager
-    async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         async with AsyncClient(
             base_url=str(settings.weather_provider_base_url),
             timeout=Timeout(
