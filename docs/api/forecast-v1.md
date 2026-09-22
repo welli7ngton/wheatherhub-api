@@ -1,9 +1,8 @@
 # Forecast API v1 contract
 
-Status: the forecast route, query validation and success response are implemented
-and exposed in OpenAPI. Custom error envelopes, provider error HTTP mappings and
-request IDs remain pending. Validation currently returns FastAPI's default 422
-response. Live provider verification remains pending.
+Status: the forecast route, query validation, error mappings and request IDs are
+implemented and tested. Success and error responses are documented in OpenAPI.
+Live provider verification remains pending.
 
 ## Request
 
@@ -18,7 +17,7 @@ response. Live provider verification remains pending.
 Unknown query parameters are rejected. NaN, infinity, missing coordinates and
 out-of-range values are invalid. Query values are parsed from HTTP strings.
 Repeated query parameters are rejected with HTTP 422, including identical values;
-clients must send each parameter once. The planned error code is
+clients must send each parameter once. The error code is
 `INVALID_COORDINATES` for repeated coordinates and `INVALID_QUERY` for other
 repeated parameters, with coordinate errors taking precedence.
 
@@ -72,7 +71,7 @@ Coordinates describe the requested location, not the provider's grid resolution.
 
 ## Errors
 
-All forecast errors will use this envelope, including request validation errors:
+All forecast errors use this envelope, including request validation errors:
 
 ```json
 {
@@ -97,8 +96,9 @@ When multiple query errors occur, coordinate errors take precedence. Messages
 are descriptive and may evolve; clients branch on `code`. Generate a UUID per
 request and return it as `X-Request-ID` on both success and error responses, with
 the same UUID in error bodies. Do not expose upstream payloads, internal exception
-messages or stack traces. These mappings are requirements for phase 3, not
-implemented exception handlers in this delivery.
+messages or stack traces. Client-supplied request IDs are ignored: each request
+receives a new server-generated UUID. Unexpected exceptions are logged server-side
+with that UUID and return the safe envelope even when debug mode is enabled.
 
 ## Provider boundary
 
