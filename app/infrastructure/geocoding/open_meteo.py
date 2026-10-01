@@ -38,7 +38,9 @@ class OpenMeteoGeocodingProvider:
     def __init__(self, client: httpx.AsyncClient) -> None:
         self._client = client
 
-    async def search(self, name: str, country_code: str, *, limit: int) -> tuple[Location, ...]:
+    async def search(
+        self, name: str, country_code: str, *, limit: int
+    ) -> tuple[Location, ...]:
         try:
             response = await self._client.get(
                 "/v1/search",

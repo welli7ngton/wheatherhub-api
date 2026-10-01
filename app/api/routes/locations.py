@@ -66,7 +66,9 @@ async def search_locations(
     query: Annotated[LocationQuery, Depends(validate_location_query)],
     use_case: Annotated[SearchLocation, Depends(get_search_location_use_case)],
 ) -> LocationSearchResponse:
-    locations = await use_case.execute(query.name, query.country_code, limit=query.limit)
+    locations = await use_case.execute(
+        query.name, query.country_code, limit=query.limit
+    )
     return LocationSearchResponse(
         results=[
             LocationResponse(

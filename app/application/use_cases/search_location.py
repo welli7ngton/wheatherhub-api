@@ -6,7 +6,9 @@ class SearchLocation:
     def __init__(self, provider: GeocodingProvider) -> None:
         self._provider = provider
 
-    async def execute(self, name: str, country_code: str, *, limit: int = 10) -> tuple[Location, ...]:
+    async def execute(
+        self, name: str, country_code: str, *, limit: int = 10
+    ) -> tuple[Location, ...]:
         name = name.strip()
         country_code = country_code.strip()
 

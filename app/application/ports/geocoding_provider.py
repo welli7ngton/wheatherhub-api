@@ -20,5 +20,6 @@ class GeocodingProviderInvalidResponse(GeocodingProviderError):
 
 
 class GeocodingProvider(Protocol):
-    async def search(self, name: str, country_code: str, *, limit: int) -> tuple[Location, ...]:
-        ...
+    async def search(
+        self, name: str, country_code: str, *, limit: int
+    ) -> tuple[Location, ...]: ...
