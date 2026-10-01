@@ -204,7 +204,7 @@ Allow users to search for a city instead of providing coordinates manually.
 ## Endpoint
 
 ```http
-GET /api/v1/locations/search?q=Fortaleza
+GET /api/v1/locations/search?name=Fortaleza&country_code=BR
 ```
 
 ## Tasks
@@ -1046,3 +1046,14 @@ You should be able to explain:
 The most valuable outcome is not the repository itself.
 
 It is being able to defend the engineering decisions behind it.
+
+
+## Implementation update ? 2026-09-30
+
+The historical checklist above is not a current completion report. Forecast
+layers and HTTP integration are implemented (see docs/phase-3-implementation-plan.md).
+Location search is now implemented with a separate geocoding protocol, use case,
+Open-Meteo adapter, endpoint, configuration and automated tests. See
+`docs/api/locations-v1.md` and `docs/adr/004-geocoding-boundary.md`.
+Container and live-provider verification of the forecast delivery remain pending.
+Persistence is the next functional milestone after integration verification.
