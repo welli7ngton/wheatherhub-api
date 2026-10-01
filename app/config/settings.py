@@ -21,3 +21,10 @@ class Settings(BaseSettings):
     weather_provider_read_timeout: TimeoutSeconds = 10.0
     weather_provider_write_timeout: TimeoutSeconds = 5.0
     weather_provider_pool_timeout: TimeoutSeconds = 5.0
+    geocoding_provider_base_url: AnyHttpUrl = AnyHttpUrl(
+        "https://geocoding-api.open-meteo.com"
+    )
+    geocoding_provider_connect_timeout: TimeoutSeconds = 5.0
+    geocoding_provider_read_timeout: TimeoutSeconds = 10.0
+    geocoding_provider_write_timeout: TimeoutSeconds = 5.0
+    geocoding_provider_pool_timeout: TimeoutSeconds = 5.0

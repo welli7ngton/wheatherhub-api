@@ -26,7 +26,9 @@ success and failure paths. The application lifespan now owns a configured shared
 HTTP client and wires the adapter into the forecast use case. The forecast route
 is available at `GET /api/v1/weather/forecast` with required `latitude` and
 `longitude` and optional `forecast_days` (1–7, default 1). Unknown and repeated
-parameters are rejected. Location search remains planned.
+parameters are rejected. Location search is available at `GET /api/v1/locations/search?name=Fortaleza&country_code=BR`
+with optional `limit` (1?20, default 10). See the [location contract](docs/api/locations-v1.md)
+and [ADR 004](docs/adr/004-geocoding-boundary.md).
 
 See the [phase 3 implementation plan](docs/phase-3-implementation-plan.md) for
 progress and the next implementation steps.
@@ -152,9 +154,9 @@ invalid configuration. They do not call external services.
 With Docker running:
 
 ```powershell
-docker compose up --build --wait
+task up
 curl.exe http://127.0.0.1:8000/health
-docker compose down
+task down
 ```
 
 The image runs as a non-root user and includes a health check. Compose exposes
@@ -195,7 +197,7 @@ Client
   -> External weather provider
 ```
 
-The planned integration uses Open-Meteo for weather forecasts and geocoding. Future work may add persistence, caching, resilience, observability, background processing, and containerization.
+The planned integration uses Open-Meteo for weather forecasts and geocoding. Future work may add persistence, caching, resilience, observability, background processing, and production deployment.
 
 ## API Example
 
@@ -210,3 +212,33 @@ Expected response:
 ```json
 {"status":"ok"}
 ```
+
+## Location search
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/v1/locations/search?name=Fortaleza&country_code=BR&limit=5"
+```
+
+Use coordinates from the chosen result to request a forecast. No matches return
+200 with an empty `results` list. Country, region and timezone can be null.
+
+Geocoding has its own lifespan-owned client and settings:
+`WEATHERHUB_GEOCODING_PROVIDER_BASE_URL` defaults to
+`https://geocoding-api.open-meteo.com`. The corresponding
+`WEATHERHUB_GEOCODING_PROVIDER_CONNECT_TIMEOUT`, `READ_TIMEOUT`, `WRITE_TIMEOUT`
+and `POOL_TIMEOUT` variables default to 5, 10, 5 and 5 seconds respectively
+(each uses the full `WEATHERHUB_GEOCODING_PROVIDER_` prefix).
+They are HTTP operation limits, not a total deadline. Compose passes all five
+settings through. Tests use fake providers and HTTPX mock transport, including
+invalid inputs, empty results, upstream failures and client cleanup.
+
+
+Location search requires both `name` and `country_code` (for example `BR`);
+the former `q` parameter is rejected. Country codes are trimmed and checked for
+length two, without uppercase normalization or ISO membership validation.
+
+`task up` builds and starts Compose, waiting for health. `task down` removes
+containers, the project network and locally built images (`--rmi local`).
+The current Dockerfile enables Uvicorn `--reload`, but Compose has no source
+bind mount: host edits still require rebuilding with `task up`. For local
+Python development, `task dev` reloads saved source changes directly.

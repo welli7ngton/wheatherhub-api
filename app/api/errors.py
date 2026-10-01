@@ -9,6 +9,11 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.responses import JSONResponse, Response
 
 from app.api.schemas.errors import ErrorCode, ErrorDetail, ErrorResponse
+from app.application.ports.geocoding_provider import (
+    GeocodingProviderInvalidResponse,
+    GeocodingProviderTimeout,
+    GeocodingProviderUnavailable,
+)
 from app.application.ports.weather_provider import (
     WeatherProviderInvalidResponse,
     WeatherProviderTimeout,
@@ -60,13 +65,14 @@ def register_error_handlers(application: FastAPI) -> None:
         coordinates = {"latitude", "longitude"}
         # Model validation may fail before the duplicate-check dependency runs.
         # Inspect the original query too so coordinate duplicates still win.
-        coordinate_error = any(
-            len(request.query_params.getlist(name)) > 1 for name in coordinates
-        ) or any(
-            len(error["loc"]) >= 2
-            and error["loc"][0] == "query"
-            and error["loc"][1] in coordinates
-            for error in exc.errors()
+        coordinate_error = request.url.path == "/api/v1/weather/forecast" and (
+            any(len(request.query_params.getlist(name)) > 1 for name in coordinates)
+            or any(
+                len(error["loc"]) >= 2
+                and error["loc"][0] == "query"
+                and error["loc"][1] in coordinates
+                for error in exc.errors()
+            )
         )
         if coordinate_error:
             return error_response(
@@ -110,4 +116,37 @@ def register_error_handlers(application: FastAPI) -> None:
             502,
             ErrorCode.WEATHER_PROVIDER_INVALID_RESPONSE,
             "Weather provider returned an invalid response.",
+        )
+
+    @application.exception_handler(GeocodingProviderTimeout)
+    async def geocoding_timeout(
+        request: Request, exc: GeocodingProviderTimeout
+    ) -> JSONResponse:
+        return error_response(
+            request,
+            504,
+            ErrorCode.GEOCODING_PROVIDER_TIMEOUT,
+            "Geocoding provider timed out.",
+        )
+
+    @application.exception_handler(GeocodingProviderUnavailable)
+    async def geocoding_unavailable(
+        request: Request, exc: GeocodingProviderUnavailable
+    ) -> JSONResponse:
+        return error_response(
+            request,
+            503,
+            ErrorCode.GEOCODING_PROVIDER_UNAVAILABLE,
+            "Geocoding provider is temporarily unavailable.",
+        )
+
+    @application.exception_handler(GeocodingProviderInvalidResponse)
+    async def geocoding_invalid_response(
+        request: Request, exc: GeocodingProviderInvalidResponse
+    ) -> JSONResponse:
+        return error_response(
+            request,
+            502,
+            ErrorCode.GEOCODING_PROVIDER_INVALID_RESPONSE,
+            "Geocoding provider returned an invalid response.",
         )
