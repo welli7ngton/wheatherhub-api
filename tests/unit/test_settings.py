@@ -23,12 +23,13 @@ def test_invalid_debug_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
         Settings()
 
 
+@pytest.mark.parametrize("provider", ["WEATHER", "GEOCODING"])
 @pytest.mark.parametrize("kind", ["CONNECT", "READ", "WRITE", "POOL"])
 @pytest.mark.parametrize("value", ["0", "-1", "nan", "inf", "-inf", "invalid"])
 def test_invalid_provider_timeouts(
-    monkeypatch: pytest.MonkeyPatch, kind: str, value: str
+    monkeypatch: pytest.MonkeyPatch, kind: str, value: str, provider: str
 ) -> None:
-    monkeypatch.setenv(f"WEATHERHUB_WEATHER_PROVIDER_{kind}_TIMEOUT", value)
+    monkeypatch.setenv(f"WEATHERHUB_{provider}_PROVIDER_{kind}_TIMEOUT", value)
     with pytest.raises(ValidationError):
         Settings()
 

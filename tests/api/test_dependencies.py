@@ -7,7 +7,8 @@ from fastapi.testclient import TestClient
 
 from app.api import application as application_module
 from app.api.application import create_application
-from app.api.dependencies import get_forecast_use_case
+from app.api.dependencies import get_forecast_use_case, get_search_location_use_case
+from app.application.ports.geocoding_provider import GeocodingProviderUnavailable
 from app.application.ports.weather_provider import WeatherProviderUnavailable
 from app.application.use_cases.get_forecast import GetForecast
 from app.config.settings import Settings
@@ -45,6 +46,8 @@ async def test_lifespan_wires_configured_client_and_cleans_up(
             "weather_provider_read_timeout": 2,
             "weather_provider_write_timeout": 3,
             "weather_provider_pool_timeout": 4,
+            "geocoding_provider_base_url": "https://geo.example",
+            "geocoding_provider_read_timeout": 7,
         }
     )
     app = create_application(settings)
@@ -62,15 +65,25 @@ async def test_lifespan_wires_configured_client_and_cleans_up(
             "write": 3,
             "pool": 4,
         }
+        geocoding_client = provider_clients[1]
+        assert str(geocoding_client.base_url) == "https://geo.example/"
+        assert geocoding_client.timeout.read == 7
+        search = get_search_location_use_case(request)
+        assert get_search_location_use_case(request) is search
+        with pytest.raises(GeocodingProviderUnavailable):
+            await search.execute("Fortaleza", "BR")
         use_case = get_forecast_use_case(request)
         assert get_forecast_use_case(request) is use_case
         for _ in range(2):
             with pytest.raises(WeatherProviderUnavailable):
                 await use_case.execute(Coordinates(0, 0))
-        assert len(provider_clients) == 1
+        assert len(provider_clients) == 2
         assert not client.is_closed
 
-    assert client.is_closed
+    assert all(client.is_closed for client in provider_clients)
+    assert not hasattr(app.state, "search_location")
+    with pytest.raises(RuntimeError, match="lifespan"):
+        get_search_location_use_case(request)
     with pytest.raises(RuntimeError, match="lifespan"):
         get_forecast_use_case(request)
 
@@ -87,9 +100,9 @@ async def test_lifespan_closes_client_on_error_and_can_restart(
     assert not hasattr(app.state, "get_forecast")
 
     async with app.router.lifespan_context(app):
-        assert len(provider_clients) == 2
-        assert not provider_clients[1].is_closed
-    assert provider_clients[1].is_closed
+        assert len(provider_clients) == 4
+        assert not provider_clients[2].is_closed
+    assert all(client.is_closed for client in provider_clients)
 
 
 def test_health_does_not_call_provider(
@@ -138,7 +151,8 @@ async def test_application_instances_do_not_share_clients(
     async with first.router.lifespan_context(first):
         async with second.router.lifespan_context(second):
             assert first.state.get_forecast is not second.state.get_forecast
-            assert len(provider_clients) == 2
-        assert provider_clients[1].is_closed
+            assert len(provider_clients) == 4
+        assert provider_clients[2].is_closed
+        assert provider_clients[3].is_closed
         assert not provider_clients[0].is_closed
     assert provider_clients[0].is_closed
